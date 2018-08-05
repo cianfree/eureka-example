@@ -19,6 +19,7 @@
         <module>eureka-services-api</module>
         <module>eureka-services-consumer</module>
         <module>eureka-services-provider</module>
+        <module>springboot-admin</module>
     </modules>
     <packaging>pom</packaging>
 
