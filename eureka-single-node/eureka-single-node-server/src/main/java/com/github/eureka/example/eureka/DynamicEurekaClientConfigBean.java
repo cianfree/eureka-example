@@ -3,6 +3,7 @@ package com.github.eureka.example.eureka;
 import com.alibaba.fastjson.JSON;
 import com.github.eureka.example.model.EurekaServer;
 import com.github.eureka.example.service.EurekaServerService;
+import com.github.eureka.example.util.RetryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,9 +24,7 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static org.springframework.cloud.netflix.eureka.EurekaConstants.DEFAULT_PREFIX;
 
@@ -97,6 +96,10 @@ public class DynamicEurekaClientConfigBean extends EurekaClientConfigBean {
         // 适配 defaultZone 的 serviceUrl
         adapterDefaultZone(localEurekaServiceUrl);
 
+        registerMySelf();
+    }
+
+    protected void registerMySelf() {
         // 自定义 Eureka 注册服务发现列表，然后扔进 serviceUrl 中去就可以了
         eurekaServerService.add(new EurekaServer(getLocalEurekaServiceUrl(this.hostname)));
     }
@@ -122,8 +125,6 @@ public class DynamicEurekaClientConfigBean extends EurekaClientConfigBean {
 
         Map<String, String> map = getServiceUrl();
         for (Map.Entry<String, String> entry : map.entrySet()) {
-            logger.info(entry.getKey() + " : " + entry.getValue());
-
             String serviceUrl = entry.getValue();
             String[] urls = serviceUrl.split(",");
             StringBuilder builder = new StringBuilder();
@@ -250,8 +251,12 @@ public class DynamicEurekaClientConfigBean extends EurekaClientConfigBean {
     @Scheduled(cron = "0/10 * * * * *")
     public void eurekaServerMonitor() throws Exception {
 
+        // 注册本服务
+        registerMySelf();
+
         List<EurekaServer> serverList = eurekaServerService.list();
-        System.out.println("执行监控： " + JSON.toJSONString(serverList));
+        logger.info("执行监控： " + JSON.toJSONString(serverList));
+
         if (null == serverList || serverList.isEmpty()) {
             return;
         }
@@ -259,7 +264,7 @@ public class DynamicEurekaClientConfigBean extends EurekaClientConfigBean {
         for (EurekaServer eurekaServer : serverList) {
 
             String serviceUrl = eurekaServer.getServiceUrl();
-            URI uri = new URI(serviceUrl);
+            final URI uri = new URI(serviceUrl);
 
             String host = uri.getHost();
             int port = uri.getPort();
@@ -268,10 +273,70 @@ public class DynamicEurekaClientConfigBean extends EurekaClientConfigBean {
                 continue;
             }
 
-            System.out.println(uri.getHost() + ": " + uri.getPort());
+            String responseText = RetryUtil.execute(1, 1000, false, new RetryUtil.Executor<String>() {
+                @Override
+                public String execute() {
+                    String url = "http://" + uri.getHost() + ":" + uri.getPort() + "/monitor/monitor.do";
+                    return restTemplate.getForObject(url, String.class);
+                }
+            });
+
+            if (StringUtils.isEmpty(responseText)) {
+                removeUnAvailableEurekaServer(eurekaServer);
+            }
 
         }
+    }
 
+
+    /**
+     * 移除服务
+     *
+     * @param eurekaServer 要移除的 EurekaServer
+     */
+    private void removeUnAvailableEurekaServer(EurekaServer eurekaServer) {
+        eurekaServerService.remove(eurekaServer);
+        String serviceUrl = eurekaServer.getServiceUrl();
+        try {
+            final URI uri = new URI(serviceUrl);
+            filterServiceUrl(uri.getHost(), uri.getPort());
+        } catch (URISyntaxException ignored) {
+        }
+
+        logger.info("移除服务[" + eurekaServer.getServiceUrl() + "]，监控失败！");
+
+    }
+
+    private void filterServiceUrl(String host, int port) {
+        Map<String, String> newMap = new HashMap<>();
+
+        Map<String, String> map = getServiceUrl();
+        for (Map.Entry<String, String> entry : map.entrySet()) {
+            String serviceUrl = entry.getValue();
+            String[] urls = serviceUrl.split(",");
+            StringBuilder builder = new StringBuilder();
+            for (String url : urls) {
+                try {
+                    URI uri = new URI(url);
+                    if (uri.getHost().equalsIgnoreCase(host) && uri.getPort() != port){
+                        builder.append(url).append(",");
+                    }
+                } catch (URISyntaxException ignored) {
+                }
+            }
+
+            if (builder.length() > 0) {
+                builder.setLength(builder.length() - 1);
+                newMap.put(entry.getKey(), builder.toString());
+            }
+        }
+
+        if (!newMap.isEmpty()) {
+            this.setServiceUrl(newMap);
+        } else {
+            newMap.put(DEFAULT_ZONE, getLocalEurekaServiceUrl(this.localip));
+            this.setServiceUrl(newMap);
+        }
 
     }
 
@@ -280,8 +345,11 @@ public class DynamicEurekaClientConfigBean extends EurekaClientConfigBean {
         try {
             String ip = InetAddress.getByName(host).getHostAddress();
             String localip = InetAddress.getByName(this.localip).getHostAddress();
+            Set<String> localhostSet = new HashSet<>(Arrays.asList(
+                    this.localip, localip, "localhost", this.hostname
+            ));
 
-            return (localip.equals(ip) || "localhost".equalsIgnoreCase(ip) || "localhost".equalsIgnoreCase(host))
+            return (localhostSet.contains(ip) || localhostSet.contains(host))
                     && this.localport == port;
         } catch (UnknownHostException e) {
             return false;

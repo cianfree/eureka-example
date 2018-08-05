@@ -14,6 +14,13 @@
     <description>单节点服务端</description>
 
     <dependencies>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Eureka Server -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

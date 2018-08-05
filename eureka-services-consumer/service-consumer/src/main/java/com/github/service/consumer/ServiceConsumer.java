@@ -20,6 +20,11 @@ import java.util.Map;
 public class ServiceConsumer implements CommandLineRunner {
 
     public static void main(String[] args) {
+
+        String profile = "single";
+
+        System.setProperty("spring.profiles.active", profile);
+
         SpringApplication.run(ServiceConsumer.class, args);
     }
 
@@ -30,6 +35,12 @@ public class ServiceConsumer implements CommandLineRunner {
     public void run(String... args) throws Exception {
         System.out.println(restTemplate);
 
+        testHiService();
+
+        System.exit(-1);
+    }
+
+    private void testHelloService() {
         Map<String, Object> paramMap = new HashMap<String, Object>() {
             {
                 put("name", "Arvin");
@@ -40,6 +51,21 @@ public class ServiceConsumer implements CommandLineRunner {
         String text = this.restTemplate.getForObject("http://hello-service/sayHello?name={name}", String.class, paramMap);
         System.out.println("ResponseText1: " + text);
         text = this.restTemplate.getForObject("http://hello-service/sayHello?name={name}", String.class, "Arvin");
+        System.out.println("ResponseText2: " + text);
+
+    }
+
+    private void testHiService() {
+        Map<String, Object> paramMap = new HashMap<String, Object>() {
+            {
+                put("name", "Arvin");
+            }
+        };
+
+        // 一定要用占位符, 下面两种写法都可以
+        String text = this.restTemplate.getForObject("http://hi-service/sayHi?name={name}", String.class, paramMap);
+        System.out.println("ResponseText1: " + text);
+        text = this.restTemplate.getForObject("http://hi-service/sayHi?name={name}", String.class, "Arvin");
         System.out.println("ResponseText2: " + text);
     }
 }

@@ -17,7 +17,7 @@
     <modules>
         <module>eureka-single-node</module>
         <module>eureka-services-api</module>
-        <module>eureka-services-comsumer</module>
+        <module>eureka-services-consumer</module>
         <module>eureka-services-provider</module>
     </modules>
     <packaging>pom</packaging>
